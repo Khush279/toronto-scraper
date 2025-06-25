@@ -1,9 +1,16 @@
-// netlify/functions/scrape.js - COMPREHENSIVE URL LIST
+// netlify/functions/scrape.js - ORIGINAL WORKING VERSION + MORE URLS
 const axios = require('axios');
 const cheerio = require('cheerio');
 
-// MASSIVE list of URLs that host Toronto markets and pop-ups
+// EXPANDED URL LIST - Your original 5 + 70 more
 const urls = [
+    // Original working URLs
+    'https://www.stlawrencemarket.com/',
+    'https://www.evergreen.ca/',
+    'https://thewelcomemarket.ca/',
+    'https://www.torontoartisan.com/',
+    'https://artsmarket.ca/',
+    
     // Event Platforms
     'https://www.eventbrite.ca/d/canada--toronto/pop-up/',
     'https://www.eventbrite.ca/d/canada--toronto/vendor/',
@@ -23,7 +30,6 @@ const urls = [
     'https://www.efosa.ca/',
     
     // Official Market Websites
-    'https://www.stlawrencemarket.com/',
     'https://www.evergreen.ca/evergreen-brick-works/saturday-farmers-market/',
     'https://stacktmarket.com/events/',
     'https://www.harbourfrontcentre.com/whatson/',
@@ -46,10 +52,6 @@ const urls = [
     'https://www.harbourfront.com/events/',
     'https://www.ontarioplace.com/en/events/',
     'https://casaloma.ca/events/',
-    
-    // Market Networks & Communities
-    'https://www.facebook.com/groups/torontovbnetwork/',
-    'https://www.meetup.com/cities/ca/on/toronto/markets/',
     
     // Shopping & Retail
     'https://www.thedistillerydistrict.com/whats-on/',
@@ -147,64 +149,86 @@ exports.handler = async (event, context) => {
     }
     
     try {
-        console.log(`Starting comprehensive scraper with ${urls.length} URLs...`);
         const allMarkets = [];
-        let processedCount = 0;
         
-        // Process URLs in batches to avoid timeout
-        const batchSize = 15; // Process 15 URLs max to stay under timeout
-        const urlsToProcess = urls.slice(0, batchSize);
+        // Process URLs in batches to avoid timeout (process 15 URLs max)
+        const urlsToProcess = urls.slice(0, 15);
         
         for (const url of urlsToProcess) {
             try {
-                processedCount++;
-                console.log(`Processing ${processedCount}/${urlsToProcess.length}: ${url}`);
-                
                 const response = await axios.get(url, {
-                    headers: { 
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
-                    },
-                    timeout: 10000,
-                    maxRedirects: 3
+                    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+                    timeout: 8000
                 });
                 
-                const $ = cheerio.load(response.data);
-                const markets = extractMarkets($, url);
+                const $ = cheerio.load(response.text);
                 
-                if (markets.length > 0) {
-                    allMarkets.push(...markets);
-                    console.log(`Found ${markets.length} markets from ${url}`);
-                }
-                
-                // Small delay between requests
-                await new Promise(resolve => setTimeout(resolve, 500));
+                // Simple scraping - look for headings and content
+                $('h1, h2, h3, h4').each((i, elem) => {
+                    if (i >= 5) return false; // Limit per site
+                    
+                    const name = $(elem).text().trim();
+                    if (name.length > 5 && name.length < 100) {
+                        const context = $(elem).parent().text().trim();
+                        
+                        // Find links
+                        let website = 'N/A';
+                        let vendorInfo = 'N/A';
+                        
+                        $(elem).parent().find('a').each((j, link) => {
+                            const href = $(link).attr('href');
+                            if (href) {
+                                const fullUrl = href.startsWith('http') ? href : new URL(href, url).href;
+                                const linkText = $(link).text().toLowerCase();
+                                
+                                if (linkText.includes('vendor') || linkText.includes('apply')) {
+                                    vendorInfo = fullUrl;
+                                } else if (website === 'N/A') {
+                                    website = fullUrl;
+                                }
+                            }
+                        });
+                        
+                        allMarkets.push({
+                            name: name,
+                            description: context.substring(0, 200),
+                            location: extractLocation(context),
+                            dates: extractDates(context),
+                            website: website,
+                            vendor_info: vendorInfo,
+                            source_url: url
+                        });
+                    }
+                });
                 
             } catch (error) {
-                console.log(`Error with ${url}: ${error.message}`);
-                continue;
+                console.log(`Error scraping ${url}:`, error.message);
             }
         }
         
-        // Remove duplicates and clean data
-        const uniqueMarkets = removeDuplicates(allMarkets);
+        // Remove basic duplicates
+        const unique = [];
+        const seen = new Set();
         
-        console.log(`Processed ${processedCount} URLs, found ${uniqueMarkets.length} unique markets`);
+        for (const market of allMarkets) {
+            const key = market.name.toLowerCase().replace(/[^\w]/g, '');
+            if (!seen.has(key) && key.length > 3) {
+                seen.add(key);
+                unique.push(market);
+            }
+        }
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                markets: uniqueMarkets,
-                count: uniqueMarkets.length,
-                processed_urls: processedCount,
-                total_urls: urls.length
+                markets: unique,
+                count: unique.length
             })
         };
         
     } catch (error) {
-        console.error('Main scraper error:', error);
         return {
             statusCode: 500,
             headers,
@@ -216,264 +240,17 @@ exports.handler = async (event, context) => {
     }
 };
 
-function extractMarkets($, url) {
-    const markets = [];
-    
-    // Strategy 1: Event listings (Eventbrite, AllEvents)
-    if (url.includes('eventbrite') || url.includes('allevents')) {
-        $('.event-card, .event-item, [class*="event"]').each((i, elem) => {
-            if (i >= 10) return false;
-            
-            const $elem = $(elem);
-            const title = $elem.find('h1, h2, h3, h4, .event-title, [class*="title"]').first().text().trim();
-            const description = $elem.text().trim();
-            
-            if (title && isValidMarketName(title)) {
-                markets.push(createMarket(title, description, url));
-            }
-        });
-    }
-    
-    // Strategy 2: Blog articles (BlogTO, Narcity, etc.)
-    else if (url.includes('blogto') || url.includes('narcity') || url.includes('timeout') || url.includes('curiocity')) {
-        $('h2, h3, h4').each((i, elem) => {
-            if (i >= 15) return false;
-            
-            const $elem = $(elem);
-            const title = $elem.text().trim();
-            
-            if (isValidMarketName(title)) {
-                const context = getContextText($elem);
-                markets.push(createMarket(title, context, url));
-            }
-        });
-        
-        // Also check list items in articles
-        $('li').each((i, elem) => {
-            if (i >= 20) return false;
-            
-            const text = $(elem).text().trim();
-            if (text.length > 30 && isValidMarketName(text)) {
-                const name = extractMarketName(text);
-                if (name) {
-                    markets.push(createMarket(name, text, url));
-                }
-            }
-        });
-    }
-    
-    // Strategy 3: Official venue sites
-    else if (url.includes('stackt') || url.includes('harbourfront') || url.includes('stlawrence') || url.includes('evergreen')) {
-        $('.event, .market, .program, article').each((i, elem) => {
-            if (i >= 8) return false;
-            
-            const $elem = $(elem);
-            const title = $elem.find('h1, h2, h3, h4').first().text().trim();
-            const description = $elem.text().trim();
-            
-            if (title && (title.length > 5)) {
-                markets.push(createMarket(title, description, url));
-            }
-        });
-    }
-    
-    // Strategy 4: Vendor application pages
-    else if (url.includes('apply') || url.includes('vendor') || url.includes('become')) {
-        $('h1, h2, h3').each((i, elem) => {
-            if (i >= 5) return false;
-            
-            const title = $(elem).text().trim();
-            const context = getContextText($(elem));
-            
-            if (title.length > 5 && context.length > 50) {
-                markets.push(createMarket(title, context, url));
-            }
-        });
-    }
-    
-    // Strategy 5: General scraping
-    else {
-        $('h1, h2, h3, h4').each((i, elem) => {
-            if (i >= 10) return false;
-            
-            const title = $(elem).text().trim();
-            if (isValidMarketName(title)) {
-                const context = getContextText($(elem));
-                markets.push(createMarket(title, context, url));
-            }
-        });
-    }
-    
-    return markets;
-}
-
-function isValidMarketName(text) {
-    if (!text || text.length < 5 || text.length > 150) return false;
-    
-    const marketKeywords = [
-        'market', 'farmers', 'artisan', 'craft', 'vendor', 'bazaar', 'fair', 
-        'festival', 'pop-up', 'popup', 'night market', 'holiday market',
-        'christmas market', 'farmers market', 'craft fair', 'art show',
-        'maker', 'handmade', 'local', 'community market', 'street festival'
-    ];
-    
-    const excludeWords = [
-        'about', 'contact', 'home', 'search', 'menu', 'login', 'register',
-        'privacy', 'terms', 'copyright', 'subscribe', 'follow', 'share',
-        'click', 'here', 'more', 'read', 'view', 'see', 'find', 'get'
-    ];
-    
-    const lowerText = text.toLowerCase();
-    const hasKeyword = marketKeywords.some(keyword => lowerText.includes(keyword));
-    const hasExclude = excludeWords.some(word => lowerText.includes(word));
-    
-    return hasKeyword && !hasExclude;
-}
-
-function extractMarketName(text) {
-    // Extract clean market name from longer text
-    const sentences = text.split(/[.!?]+/);
-    
-    for (const sentence of sentences) {
-        const cleaned = sentence.trim();
-        if (cleaned.length > 10 && cleaned.length < 80 && isValidMarketName(cleaned)) {
-            return cleaned;
-        }
-    }
-    
-    // Try first meaningful part
-    const parts = text.split(/[:,\-–—]/);
-    for (const part of parts) {
-        const cleaned = part.trim();
-        if (cleaned.length > 10 && cleaned.length < 80 && isValidMarketName(cleaned)) {
-            return cleaned;
-        }
-    }
-    
-    return text.substring(0, 60).trim();
-}
-
-function getContextText($elem) {
-    let context = '';
-    
-    // Get text from next siblings
-    let next = $elem.next();
-    while (next.length && context.length < 300) {
-        if (next.is('p, div, span, li')) {
-            context += ' ' + next.text();
-        }
-        next = next.next();
-    }
-    
-    // If not enough, get from parent
-    if (context.length < 100) {
-        context = $elem.parent().text();
-    }
-    
-    return context.trim().substring(0, 400);
-}
-
-function createMarket(name, description, url) {
-    return {
-        name: cleanText(name),
-        description: cleanText(description).substring(0, 300),
-        location: extractLocation(description),
-        dates: extractDates(description),
-        website: extractWebsite(description) || getBaseUrl(url),
-        vendor_info: extractVendorInfo(description, url),
-        source_url: url,
-        scraped_date: new Date().toISOString().split('T')[0]
-    };
-}
-
 function extractLocation(text) {
-    const patterns = [
-        /\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Lane|Ln|Way|Place|Court)\b[^.!?]*/i,
-        /\b[A-Za-z\s]+(?:Park|Square|Centre|Center|Market|Mall|Plaza|Building|Hall)\b/i,
-        /\b(?:Downtown|Midtown|East|West|North|South)\s+Toronto\b/i,
-        /\b(?:Kensington|Leslieville|Queen West|King West|Distillery|Harbourfront|Junction|Beaches|Corktown|Liberty Village|High Park|Christie Pits|Trinity Bellwoods|Riverdale)\b/i
-    ];
+    const addressMatch = text.match(/\b\d+\s+[A-Za-z\s]+(?:Street|St|Avenue|Ave|Road|Rd)\b/i);
+    if (addressMatch) return addressMatch[0];
     
-    for (const pattern of patterns) {
-        const match = text.match(pattern);
-        if (match) {
-            return cleanText(match[0]);
-        }
-    }
+    const venueMatch = text.match(/\b[A-Za-z\s]+(?:Market|Centre|Park)\b/i);
+    if (venueMatch) return venueMatch[0];
     
     return 'Toronto, ON';
 }
 
 function extractDates(text) {
-    const patterns = [
-        /\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)[^.!?]*/gi,
-        /\b(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2}[^.!?]*/gi,
-        /\b\d{1,2}:\d{2}\s*(?:AM|PM|am|pm)[^.!?]*/gi,
-        /\b(?:daily|weekly|monthly|seasonal|year-round|spring|summer|fall|winter)[^.!?]*/gi
-    ];
-    
-    let dates = [];
-    for (const pattern of patterns) {
-        const matches = text.match(pattern);
-        if (matches) {
-            dates.push(...matches.slice(0, 2));
-        }
-    }
-    
-    return dates.length > 0 ? dates.slice(0, 3).join('; ') : 'Check website for schedule';
-}
-
-function extractWebsite(text) {
-    const urlPattern = /https?:\/\/[^\s<>"']*/gi;
-    const matches = text.match(urlPattern);
-    return matches ? matches[0] : null;
-}
-
-function extractVendorInfo(text, sourceUrl) {
-    const vendorKeywords = ['vendor', 'apply', 'application', 'registration', 'sign up', 'join'];
-    const lowerText = text.toLowerCase();
-    
-    if (vendorKeywords.some(keyword => lowerText.includes(keyword))) {
-        if (sourceUrl.includes('apply') || sourceUrl.includes('vendor')) {
-            return 'Vendor applications available - check this website';
-        }
-        return 'Vendor opportunities mentioned - contact organizer';
-    }
-    
-    return 'Contact organizer for vendor information';
-}
-
-function getBaseUrl(url) {
-    try {
-        const parsed = new URL(url);
-        return `${parsed.protocol}//${parsed.hostname}`;
-    } catch {
-        return url;
-    }
-}
-
-function cleanText(text) {
-    if (!text) return '';
-    return text
-        .replace(/\s+/g, ' ')
-        .replace(/[^\w\s\-.,;:()&]/g, '')
-        .trim();
-}
-
-function removeDuplicates(markets) {
-    const seen = new Set();
-    const unique = [];
-    
-    for (const market of markets) {
-        const key = market.name.toLowerCase()
-            .replace(/[^\w]/g, '')
-            .substring(0, 25);
-        
-        if (!seen.has(key) && key.length > 5) {
-            seen.add(key);
-            unique.push(market);
-        }
-    }
-    
-    return unique;
+    const dateMatch = text.match(/\b(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|January|February|March|April|May|June|July|August|September|October|November|December)[^.!?]*\b/i);
+    return dateMatch ? dateMatch[0] : 'TBD';
 }
