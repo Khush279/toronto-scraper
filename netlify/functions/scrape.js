@@ -1,13 +1,9 @@
-// netlify/functions/scrape.js - EXACT SAME LOGIC + MORE URLS
+// netlify/functions/scrape.js - WITH CLAUDE API ENHANCEMENT
 const axios = require('axios');
 const cheerio = require('cheerio');
 
 const urls = [
-    // Original working URLs (minus artsmarket.ca)
-    'https://www.stlawrencemarket.com/',
-    'https://www.evergreen.ca/',
-    'https://thewelcomemarket.ca/',
-    'https://www.torontoartisan.com/',
+    // Core GTA market sources
     'https://stacktmarket.com/',
     'https://www.blogto.com/eat_drink/2024/05/farmers-markets-toronto-2024/',
     'https://www.timeout.com/toronto/shopping/best-farmers-markets-in-toronto',
@@ -36,105 +32,39 @@ const urls = [
     'https://www.artscapetoronto.com/wychwood-barns',
     'https://thewelltoronto.com/whats-on/',
     
-    // Market Organizers
+    // Market Organizers  
     'https://www.torontoartisan.com/apply-here.html',
     'https://fortheloveofmarkets.com/pages/upcoming-events-for-vendors',
     'https://www.torontomarketco.com/become-a-vendor',
     'https://allcanadianevents.com/applications/',
     
-    // City & Community Resources
+    // City & Community Resources (GTA-wide)
     'https://www.toronto.ca/business-economy/industry-sector-support/public-markets/public-markets-in-toronto/',
     'https://www.toronto.ca/explore-enjoy/festivals-events/',
     
-    // Venue Websites
-    'https://www.cne.ca/en/vendors',
-    'https://www.harbourfront.com/events/',
-    'https://www.ontarioplace.com/en/events/',
-    'https://casaloma.ca/events/',
-    
-    // Shopping & Retail
-    'https://www.thedistillerydistrict.com/whats-on/',
-    'https://kensingtonmarket.to/events/',
-    'https://www.cfshops.com/don-mills/en/events.html',
-    
-    // Specialty Market Sites
-    'https://www.sarassoapsandcandles.ca/pages/markets-and-pop-ups',
-    'https://www.oneofakindshow.com/toronto/',
-    'https://www.royalwinter.com/',
-    'https://www.canguild.ca/craft-shows/',
-    
-    // Food & Drink Focused
-    'https://www.torontofoodevents.ca/',
-    'https://www.foodnetwork.ca/shows/eat-st/blog/toronto-food-markets/',
-    
-    // Arts & Culture
-    'https://www.artcrawltoronto.com/',
-    'https://www.torontofringe.ca/events/',
-    'https://www.nuitblanche.ca/',
-    
-    // Seasonal & Holiday Markets
-    'https://www.christmasmarket.ca/',
-    'https://www.torontochristmasmarket.com/',
-    'https://www.harbourfront.com/festivals/',
-    
-    // Community Centers & Parks
-    'https://www.toronto.ca/data/parks/prd/facilities/complex/711/index.html',
-    'https://www.toronto.ca/explore-enjoy/parks-recreation/',
-    
-    // Pop-up Rental Platforms
-    'https://www.storefront.com/markets/toronto',
-    'https://www.sharedsquare.com/toronto',
-    'https://www.popuprepublic.com/toronto',
-    
-    // Wedding & Special Events
-    'https://www.torontoweddingshow.com/',
-    'https://www.bridalshow.com/toronto/',
-    
-    // Craft & Maker Focused
-    'https://www.craftontario.com/craft-sales/',
-    'https://www.canadianartisans.ca/events/',
-    'https://www.handmademarkets.ca/toronto/',
-    
-    // University & Campus Events
-    'https://www.utsu.ca/events/',
-    'https://www.ryerson.ca/events/',
-    'https://www.yorku.ca/events/',
-    
-    // Mall & Shopping Center Events
-    'https://www.cadillacfairview.com/shopping-centres/cf-fairview-mall/events/',
-    'https://www.cadillacfairview.com/shopping-centres/cf-sherway-gardens/events/',
-    'https://www.cfshops.com/yorkdale/en/events.html',
+    // Mississauga & Surrounding Areas
+    'https://www.mississauga.ca/events/',
     'https://www.square-one.com/events/',
     
-    // Additional Community Resources
-    'https://www.blogto.com/fashion_style/2024/01/pop-up-shops-toronto-2024/',
-    'https://www.thestar.com/life/food_wine/toronto-farmers-markets/',
-    'https://nowtoronto.com/food-and-drink/farmers-markets-toronto/',
-    'https://www.cbc.ca/news/canada/toronto/farmers-markets-toronto',
+    // Brampton & York Region
+    'https://www.brampton.ca/events/',
+    'https://www.york.ca/events/',
+    'https://www.markham.ca/events/',
+    'https://www.richmond-hill.ca/events/',
     
-    // International & Cultural Events
-    'https://www.greektowntoronto.com/events/',
-    'https://www.littleitaly.ca/events/',
-    'https://www.chinatowntoronto.com/events/',
-    'https://www.koreantowntoronto.com/events/',
+    // Durham Region
+    'https://www.durham.ca/events/',
+    'https://www.pickering.ca/events/',
+    'https://www.ajax.ca/events/',
     
-    // BIA (Business Improvement Area) Sites
-    'https://www.bloorwest.com/events/',
-    'https://www.queenwestbia.ca/events/',
-    'https://www.thebeachestoronto.com/events/',
-    'https://www.leslieville.com/events/',
-    'https://www.roncesvaillagebia.com/events/',
-    
-    // Food Halls & Markets
-    'https://www.assemblychef.com/events/',
-    'https://www.thestop.org/programs-services/markets/',
-    'https://www.foodshare.net/program/markets/',
-    
-    // Tech & Innovation Venues
-    'https://www.marsdd.com/events/',
-    'https://www.torontoenterprisefund.ca/events/',
-    'https://www.oneeleven.com/events/'
+    // Halton Region
+    'https://www.halton.ca/events/',
+    'https://www.oakville.ca/events/',
+    'https://www.burlington.ca/events/',
 ];
+
+// Claude API configuration
+const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY; // Set this in Netlify environment variables
 
 exports.handler = async (event, context) => {
     const headers = {
@@ -150,8 +80,8 @@ exports.handler = async (event, context) => {
     try {
         const allMarkets = [];
         
-        // Process URLs in batches to avoid timeout (15 URLs max to stay under 10 second limit)
-        const urlsToProcess = urls.slice(0, 15);
+        // Process URLs in batches to avoid timeout (10 URLs max to leave time for AI processing)
+        const urlsToProcess = urls.slice(0, 10);
         
         for (const url of urlsToProcess) {
             try {
@@ -159,14 +89,14 @@ exports.handler = async (event, context) => {
                 
                 const response = await axios.get(url, {
                     headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
-                    timeout: 8000
+                    timeout: 6000
                 });
                 
                 const $ = cheerio.load(response.data);
                 
                 // Look for headings and content
                 $('h1, h2, h3, h4').each((i, elem) => {
-                    if (i >= 10) return false; // Increased limit
+                    if (i >= 8) return false; // Reduced limit to save time for AI processing
                     
                     const name = $(elem).text().trim();
                     
@@ -194,19 +124,20 @@ exports.handler = async (event, context) => {
                         
                         allMarkets.push({
                             name: name,
-                            description: context.substring(0, 200),
+                            description: context.substring(0, 300),
                             location: extractLocation(context),
                             dates: extractDates(context),
                             website: website,
                             vendor_info: vendorInfo,
-                            source_url: url
+                            source_url: url,
+                            raw_context: context.substring(0, 600) // Keep raw text for AI processing
                         });
                     }
                 });
                 
                 // Also check list items for markets
                 $('li').each((i, elem) => {
-                    if (i >= 15) return false;
+                    if (i >= 12) return false;
                     
                     const text = $(elem).text().trim();
                     
@@ -221,20 +152,19 @@ exports.handler = async (event, context) => {
                                 dates: extractDates(text),
                                 website: url,
                                 vendor_info: 'Contact organizer',
-                                source_url: url
+                                source_url: url,
+                                raw_context: text.substring(0, 500)
                             });
                         }
                     }
                 });
-                
-                console.log(`Found ${allMarkets.length} total markets so far`);
                 
             } catch (error) {
                 console.log(`Error scraping ${url}:`, error.message);
             }
         }
         
-        // Remove basic duplicates
+        // Remove basic duplicates first
         const unique = [];
         const seen = new Set();
         
@@ -246,15 +176,27 @@ exports.handler = async (event, context) => {
             }
         }
         
-        console.log(`Final unique markets: ${unique.length}`);
+        console.log(`Found ${unique.length} raw markets, enhancing with Claude...`);
+        
+        // Enhance with Claude (process in batches)
+        const enhancedMarkets = [];
+        const batchSize = 5; // Process 5 markets at a time
+        
+        for (let i = 0; i < unique.length && i < 15; i += batchSize) {
+            const batch = unique.slice(i, i + batchSize);
+            const enhanced = await enhanceMarketsWithClaude(batch);
+            enhancedMarkets.push(...enhanced);
+        }
+        
+        console.log(`Enhanced ${enhancedMarkets.length} markets with Claude`);
         
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
-                markets: unique,
-                count: unique.length
+                markets: enhancedMarkets,
+                count: enhancedMarkets.length
             })
         };
         
@@ -271,6 +213,102 @@ exports.handler = async (event, context) => {
     }
 };
 
+async function enhanceMarketsWithClaude(markets) {
+    if (!CLAUDE_API_KEY) {
+        console.log('No Claude API key, returning original markets');
+        return markets.map(m => ({ ...m, ai_enhanced: false }));
+    }
+    
+    try {
+        const prompt = `I need you to clean up and enhance this Toronto market data for a vendor marketplace platform. Please analyze each market and provide enhanced information.
+
+For each market, please provide:
+1. A clean, proper market name (remove HTML artifacts, fix capitalization, make it professional)
+2. A clear, helpful description (2-3 sentences that would help vendors understand what this market is about)
+3. The most specific location/address you can extract
+4. Clean and standardized dates/schedule information
+5. Enhanced vendor application information
+6. Market category (Farmers Market, Artisan Market, Pop-up Market, Craft Fair, Holiday Market, etc.)
+7. Whether vendor applications appear to be available
+
+Raw market data:
+${JSON.stringify(markets.map(m => ({
+    name: m.name,
+    description: m.description,
+    raw_context: m.raw_context,
+    location: m.location,
+    dates: m.dates,
+    website: m.website,
+    vendor_info: m.vendor_info
+})), null, 2)}
+
+Please respond with ONLY a JSON array containing enhanced market objects with these exact fields:
+- name (cleaned and professional)
+- description (enhanced, 2-3 sentences, helpful for vendors)
+- location (most specific address/location found)
+- dates (cleaned schedule)
+- website (keep original)
+- vendor_info (enhanced with clear application details)
+- category (market type)
+- vendor_application_available (true/false)
+
+Respond with only the JSON array, no other text.`;
+
+        const response = await axios.post('https://api.anthropic.com/v1/messages', {
+            model: 'claude-3-haiku-20240307',
+            max_tokens: 2000,
+            temperature: 0.2,
+            messages: [
+                {
+                    role: 'user',
+                    content: prompt
+                }
+            ]
+        }, {
+            headers: {
+                'Authorization': `Bearer ${CLAUDE_API_KEY}`,
+                'Content-Type': 'application/json',
+                'anthropic-version': '2023-06-01'
+            },
+            timeout: 20000
+        });
+        
+        const aiResponse = response.data.content[0].text;
+        
+        // Extract JSON from response (in case Claude adds extra text)
+        const jsonMatch = aiResponse.match(/\[[\s\S]*\]/);
+        const jsonString = jsonMatch ? jsonMatch[0] : aiResponse;
+        
+        const enhancedData = JSON.parse(jsonString);
+        
+        // Merge Claude enhancements with original data
+        return enhancedData.map((enhanced, index) => ({
+            ...markets[index],
+            name: enhanced.name || markets[index].name,
+            description: enhanced.description || markets[index].description,
+            location: enhanced.location || markets[index].location,
+            dates: enhanced.dates || markets[index].dates,
+            vendor_info: enhanced.vendor_info || markets[index].vendor_info,
+            category: enhanced.category || 'General Market',
+            vendor_application_available: enhanced.vendor_application_available || false,
+            ai_enhanced: true,
+            scraped_date: new Date().toISOString().split('T')[0]
+        }));
+        
+    } catch (error) {
+        console.log('Claude enhancement error:', error.message);
+        // Return original data if AI fails
+        return markets.map(m => ({ 
+            ...m, 
+            ai_enhanced: false,
+            category: 'General Market',
+            vendor_application_available: m.vendor_info !== 'N/A' && m.vendor_info !== 'Contact organizer',
+            scraped_date: new Date().toISOString().split('T')[0]
+        }));
+    }
+}
+
+// Keep all your original functions exactly the same
 function isMarketName(text) {
     if (!text || text.length < 5 || text.length > 150) return false;
     
@@ -314,15 +352,20 @@ function extractLocation(text) {
     const venueMatch = text.match(/\b[A-Za-z\s]+(?:Market|Centre|Center|Park|Square)\b/i);
     if (venueMatch) return venueMatch[0];
     
-    // Check for Toronto neighborhoods
-    const neighborhoods = ['Kensington', 'Leslieville', 'Distillery', 'Harbourfront', 'Junction'];
-    for (const hood of neighborhoods) {
-        if (text.toLowerCase().includes(hood.toLowerCase())) {
-            return hood + ', Toronto';
+    // Check for GTA neighborhoods and cities
+    const gtaAreas = [
+        'Kensington', 'Leslieville', 'Distillery', 'Harbourfront', 'Junction',
+        'Mississauga', 'Brampton', 'Markham', 'Richmond Hill', 'Vaughan',
+        'Oakville', 'Burlington', 'Pickering', 'Ajax', 'Whitby', 'Oshawa',
+        'Newmarket', 'Aurora', 'King City', 'Etobicoke', 'Scarborough', 'North York'
+    ];
+    for (const area of gtaAreas) {
+        if (text.toLowerCase().includes(area.toLowerCase())) {
+            return area + ', ON';
         }
     }
     
-    return 'Toronto, ON';
+    return 'Greater Toronto Area, ON';
 }
 
 function extractDates(text) {
