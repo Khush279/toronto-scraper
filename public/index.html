@@ -1,0 +1,122 @@
+<!-- public/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Toronto Markets Scraper</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
+        button { padding: 15px 30px; font-size: 16px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:disabled { background: #ccc; }
+        .results { margin-top: 20px; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        .loading { color: #666; font-style: italic; }
+    </style>
+</head>
+<body>
+    <h1>Toronto Markets Scraper</h1>
+    <p>Internal tool for EODKITCHEN team</p>
+    
+    <button id="scrapeBtn" onclick="startScrape()">Scrape Markets</button>
+    
+    <div id="status"></div>
+    <div id="results"></div>
+
+    <script>
+        let scraped_data = [];
+
+        async function startScrape() {
+            const btn = document.getElementById('scrapeBtn');
+            const status = document.getElementById('status');
+            const results = document.getElementById('results');
+            
+            btn.disabled = true;
+            btn.textContent = 'Scraping...';
+            status.innerHTML = '<p class="loading">Scraping websites, please wait...</p>';
+            results.innerHTML = '';
+            
+            try {
+                const response = await fetch('/.netlify/functions/scrape');
+                const data = await response.json();
+                
+                if (data.success) {
+                    scraped_data = data.markets;
+                    displayResults(data.markets);
+                    status.innerHTML = `<p>Found ${data.markets.length} markets</p>`;
+                } else {
+                    status.innerHTML = '<p style="color: red;">Error: ' + data.error + '</p>';
+                }
+            } catch (error) {
+                status.innerHTML = '<p style="color: red;">Error: ' + error.message + '</p>';
+            }
+            
+            btn.disabled = false;
+            btn.textContent = 'Scrape Markets';
+        }
+
+        function displayResults(markets) {
+            const results = document.getElementById('results');
+            
+            if (markets.length === 0) {
+                results.innerHTML = '<p>No markets found</p>';
+                return;
+            }
+            
+            let html = `
+                <div class="results">
+                    <button onclick="downloadCSV()" style="margin-bottom: 10px;">Download CSV</button>
+                    <table>
+                        <tr>
+                            <th>Name</th>
+                            <th>Location</th>
+                            <th>Dates</th>
+                            <th>Website</th>
+                            <th>Vendor Info</th>
+                        </tr>
+            `;
+            
+            markets.forEach(market => {
+                html += `
+                    <tr>
+                        <td>${market.name}</td>
+                        <td>${market.location}</td>
+                        <td>${market.dates}</td>
+                        <td>${market.website !== 'N/A' ? `<a href="${market.website}" target="_blank">Link</a>` : 'N/A'}</td>
+                        <td>${market.vendor_info !== 'N/A' ? `<a href="${market.vendor_info}" target="_blank">Apply</a>` : 'N/A'}</td>
+                    </tr>
+                `;
+            });
+            
+            html += '</table></div>';
+            results.innerHTML = html;
+        }
+
+        function downloadCSV() {
+            if (scraped_data.length === 0) return;
+            
+            const headers = ['Name', 'Location', 'Dates', 'Website', 'Vendor Info', 'Description', 'Source'];
+            const csvContent = [
+                headers.join(','),
+                ...scraped_data.map(market => [
+                    `"${market.name}"`,
+                    `"${market.location}"`,
+                    `"${market.dates}"`,
+                    `"${market.website}"`,
+                    `"${market.vendor_info}"`,
+                    `"${market.description}"`,
+                    `"${market.source_url}"`
+                ].join(','))
+            ].join('\n');
+            
+            const blob = new Blob([csvContent], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `toronto_markets_${new Date().toISOString().split('T')[0]}.csv`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+    </script>
+</body>
+</html>
